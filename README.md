@@ -86,6 +86,35 @@ LD_LIBRARY_PATH=/usr/local/neuware/lib64:/usr/local/neuware/lib \
 This checks a 40k-token Flash Attention call, a reduced H3 transformer, a 124-frame VAE decode, and automatic
 CPU offload without downloading model weights.
 
+## Lossless offload optimization
+
+The default `cpu-master` offload mode keeps the original CPU parameter storage while a component runs on MLU. When
+the next component needs memory, the MLU copy is discarded and the preserved CPU storage is restored instead of
+copying tens of GiB of read-only weights back from MLU. This does not change model arithmetic and produced bitwise
+identical raw video and audio tensors in the validation workload. It requires enough host RAM to retain the complete
+134 GiB checkpoint throughout inference.
+
+Use the original Diffusers copy-back behavior on a host with tighter RAM limits:
+
+```bash
+./run.sh --offload-mode copyback ...
+```
+
+For a persistent single-task service, `pinned-master` page-locks the text encoder and transformer CPU masters to speed
+up their host-to-MLU transfers. Pinning adds substantial startup time and locked host memory, so it is opt-in and is
+not recommended for a one-shot CLI process or a shared node:
+
+```bash
+./run.sh --offload-mode pinned-master ...
+```
+
+On a multi-socket host, bind CPU allocation to the selected MLU's PCI-local NUMA node with the helper below. It reads
+the PCI address from `cnmon`, falls back safely when topology data is unavailable, and forwards all inference options:
+
+```bash
+./tools/numa_run.sh --device mlu:0 --prompt "..." ...
+```
+
 ## Step profiling and exactness checks
 
 The inference entry point can record synchronized per-step timing, capture one steady MLU step, and compare raw

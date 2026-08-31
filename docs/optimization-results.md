@@ -124,3 +124,30 @@ low-risk cache path did not meet the acceptance threshold. Further work should f
 
 The tested package source did not expose a newer compatible MLU-OPS candidate. Runtime A/B therefore requires a
 separate, vendor-matched environment rather than an in-place package upgrade.
+
+## Lossless component-transfer optimization
+
+The original automatic offload hook copies a resident component back to CPU before loading the next one. In inference
+the parameters are read-only, so the optimized path preserves their original CPU storage, copies it to MLU when
+needed, and restores the CPU storage reference when evicting the MLU copy. This removes the redundant device-to-host
+copy without changing any model operation. Tests used the same 960x544, 124-frame, 5-point workload as M0.
+
+| Mode | Pipeline inference | First model evaluation | Steady-step P50 | Peak MLU | Raw outputs |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Diffusers copy-back | 149.479 s | 56.697 s | 9.7193 s | 65.650 GiB | Baseline |
+| CPU master | 79.894 s | 21.649 s | 9.7306 s | 65.650 GiB | Bitwise equal |
+| CPU master + local NUMA | 71.778 s | 20.297 s | 9.7171 s | 65.650 GiB | Bitwise equal |
+| Pinned CPU master + local NUMA | 53.404 s | 11.597 s | 9.7177 s | 65.650 GiB | Bitwise equal |
+
+CPU master is the default because it gives the best one-shot wall time. Pinned master reduced the transfer portion
+further, but pinning the selected weights increased component setup from about 1.7 seconds to 39.2 seconds; it is most
+useful in a persistent process that amortizes setup over multiple requests. A 20-point CPU-master run completed with a
+9.7166-second steady-step median, confirming that the optimization does not introduce step-wise transfer churn.
+
+The trade-off is host memory: CPU master keeps the original checkpoint storage while the selected component is also
+resident on MLU. It must only be installed after LoRA or other parameter mutations. If a parameter version changes
+after the snapshot, the implementation falls back to the original copy-back path.
+
+Step diagnostics now use MLU events for ordinary timing. They preserve the queued execution order without inserting
+the four full-device synchronization barriers per step used by the original diagnostics; only the explicitly selected
+profiler step synchronizes before exporting its trace.

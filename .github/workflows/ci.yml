@@ -13,6 +13,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check Python syntax
-        run: python -m py_compile infer.py minimax_h3_mlu/*.py tools/*.py
+        run: python -m py_compile infer.py minimax_h3_mlu/*.py tools/*.py tests/*.py
       - name: Check shell syntax
-        run: bash -n download.sh download_turbo.sh interactive.sh run.sh setup.sh
+        run: bash -n download.sh download_turbo.sh interactive.sh run.sh setup.sh tools/*.sh
+      - name: Run unit tests
+        run: |
+          python -m pip install pytest torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pytest -q

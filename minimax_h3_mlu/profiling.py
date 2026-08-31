@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import statistics
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -25,6 +24,7 @@ class StepDiagnostics:
         self.profile_dir = profile_dir
         self.profile_step = profile_step
         self.timings: dict[int, StepTiming] = {}
+        self.events: dict[tuple[int, str], tuple[torch.mlu.Event, torch.mlu.Event]] = {}
         if self.profile_dir is not None:
             self.profile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -32,40 +32,54 @@ class StepDiagnostics:
         return self.timings.setdefault(index, StepTiming(index=index))
 
     def profile_denoiser(self, fn, device: torch.device, index: int):
-        torch.mlu.synchronize(device)
-        started = time.perf_counter()
-
         if self.profile_dir is None or index != self.profile_step:
-            result = fn()
-            torch.mlu.synchronize(device)
+            result = self.record_events(fn, device, index, "denoiser")
         else:
-            with torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.MLU,
-                ],
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=False,
-            ) as profiler:
-                result = fn()
-                torch.mlu.synchronize(device)
+            with torch.mlu.device(device):
+                started = torch.mlu.Event(enable_timing=True)
+                finished = torch.mlu.Event(enable_timing=True)
+                with torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.MLU,
+                    ],
+                    record_shapes=True,
+                    profile_memory=True,
+                    with_stack=False,
+                ) as profiler:
+                    started.record()
+                    result = fn()
+                    finished.record()
+                    finished.synchronize()
+            self.events[index, "denoiser"] = (started, finished)
             profiler.export_chrome_trace(str(self.profile_dir / f"denoiser-step-{index:03d}.json"))
             table = profiler.key_averages().table(sort_by="self_device_time_total", row_limit=100)
             (self.profile_dir / f"denoiser-step-{index:03d}.txt").write_text(table, encoding="utf-8")
 
-        self.timing(index).denoiser_seconds = time.perf_counter() - started
         return result
 
     def time_scheduler(self, fn, device: torch.device, index: int):
-        torch.mlu.synchronize(device)
-        started = time.perf_counter()
-        result = fn()
-        torch.mlu.synchronize(device)
-        self.timing(index).scheduler_seconds = time.perf_counter() - started
+        return self.record_events(fn, device, index, "scheduler")
+
+    def record_events(self, fn, device: torch.device, index: int, section: str):
+        with torch.mlu.device(device):
+            started = torch.mlu.Event(enable_timing=True)
+            finished = torch.mlu.Event(enable_timing=True)
+            started.record()
+            result = fn()
+            finished.record()
+        self.events[index, section] = (started, finished)
         return result
 
+    def finalize_timings(self) -> None:
+        if self.events:
+            next(reversed(self.events.values()))[1].synchronize()
+        for (index, section), (started, finished) in self.events.items():
+            seconds = started.elapsed_time(finished) / 1000.0
+            setattr(self.timing(index), f"{section}_seconds", seconds)
+
     def summary(self) -> dict:
+        self.finalize_timings()
         rows = []
         for timing in sorted(self.timings.values(), key=lambda item: item.index):
             row = asdict(timing)

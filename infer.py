@@ -14,6 +14,7 @@ from diffusers.utils.export_utils import encode_video
 from PIL import Image
 
 from minimax_h3_mlu.compat import apply_mlu_patches, set_attention_backend
+from minimax_h3_mlu.offload import DEFAULT_PINNED_COMPONENTS, OFFLOAD_MODES, enable_cpu_master_offload
 
 
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "models" / "MiniMax-H3-diffusers"
@@ -33,6 +34,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="mlu:0")
     parser.add_argument("--offload-margin", default="12GB")
+    parser.add_argument(
+        "--offload-mode",
+        choices=OFFLOAD_MODES,
+        default="cpu-master",
+        help="Weight offload policy; pinned-master favors a persistent single-task service.",
+    )
+    parser.add_argument(
+        "--pinned-components",
+        default=",".join(DEFAULT_PINNED_COMPONENTS),
+        help="Comma-separated components pinned by --offload-mode pinned-master.",
+    )
     parser.add_argument("--attention", choices=("flash", "default"), default="flash")
     parser.add_argument("--lora", type=Path)
     parser.add_argument("--lora-scale", type=float, default=1.0)
@@ -72,6 +84,8 @@ def validate_args(args: argparse.Namespace) -> str:
         raise SystemExit("--profile-step must not be negative")
     if args.profile_dir is not None and args.profile_step >= args.steps - 1:
         raise SystemExit("--profile-step must select one of the model evaluations (0 to --steps - 2)")
+    if args.offload_mode == "pinned-master" and not args.pinned_components.strip():
+        raise SystemExit("--pinned-components must not be empty with --offload-mode pinned-master")
     if args.compare_raw_dir is not None:
         for name in ("video.npy", "audio.npy"):
             if not (args.compare_raw_dir / name).is_file():
@@ -123,7 +137,13 @@ def load_pipeline(args: argparse.Namespace, workflow: str):
         device=args.device,
         memory_reserve_margin=args.offload_margin,
     )
-    return pipe, manager
+    pinned_components = tuple(name.strip() for name in args.pinned_components.split(",") if name.strip())
+    offload_stats = enable_cpu_master_offload(
+        manager,
+        mode=args.offload_mode,
+        pinned_components=pinned_components,
+    )
+    return pipe, manager, offload_stats
 
 
 def open_image(path: Path | None) -> Image.Image | None:
@@ -240,6 +260,7 @@ def main() -> None:
                 "dtype": "bfloat16",
                 "attention": args.attention,
                 "offload_margin": args.offload_margin,
+                "offload_mode": args.offload_mode,
                 "size": [args.width, args.height],
                 "num_frames": args.num_frames,
                 "steps": args.steps,
@@ -255,10 +276,15 @@ def main() -> None:
     )
 
     load_started = time.perf_counter()
-    pipe, manager = load_pipeline(args, workflow)
+    pipe, manager, offload_stats = load_pipeline(args, workflow)
     load_elapsed = time.perf_counter() - load_started
     managed = len(manager.components)
-    print(f"Loaded {managed} managed components in {load_elapsed:.1f}s", flush=True)
+    print(
+        f"Loaded {managed} managed components in {load_elapsed:.1f}s; "
+        f"CPU master={offload_stats.bytes / 1024**3:.2f} GiB, "
+        f"pinned={offload_stats.pinned_bytes / 1024**3:.2f} GiB",
+        flush=True,
+    )
 
     request = {
         "prompt": args.prompt,
@@ -314,6 +340,9 @@ def main() -> None:
         "output": str(args.output.resolve()),
         "inference_seconds": round(inference_elapsed, 3),
         "peak_mlu_gib": round(peak_gib, 3),
+        "offload_mode": args.offload_mode,
+        "cpu_master_gib": round(offload_stats.bytes / 1024**3, 3),
+        "pinned_master_gib": round(offload_stats.pinned_bytes / 1024**3, 3),
         "frames": len(videos[0]),
         "fps": 24,
         "audio_sample_rate": sampling_rate,

@@ -164,6 +164,7 @@ if [[ "${performance_mode}" == "turbo" ]]; then
   lora_scale="${lora_scale:-1.0}"
 fi
 read -r -p "Offload reserve margin [12GB]: " offload_margin
+read -r -p "Offload mode (copyback/cpu-master/pinned-master) [cpu-master]: " offload_mode
 read -r -p "Device [mlu:0]: " device
 read -r -p "Model directory [${ROOT_DIR}/models/MiniMax-H3-diffusers]: " model_dir
 
@@ -174,6 +175,7 @@ steps="${steps:-${default_steps}}"
 seed="${seed:-42}"
 attention="${attention:-flash}"
 offload_margin="${offload_margin:-12GB}"
+offload_mode="${offload_mode:-cpu-master}"
 device="${device:-mlu:0}"
 model_dir="${model_dir:-${ROOT_DIR}/models/MiniMax-H3-diffusers}"
 
@@ -220,6 +222,10 @@ if [[ -z "${offload_margin}" ]]; then
   printf '%s\n' "Offload reserve margin must not be empty." >&2
   exit 2
 fi
+if [[ "${offload_mode}" != "copyback" && "${offload_mode}" != "cpu-master" && "${offload_mode}" != "pinned-master" ]]; then
+  printf '%s\n' "Offload mode must be copyback, cpu-master, or pinned-master." >&2
+  exit 2
+fi
 if [[ -z "${device}" ]]; then
   printf '%s\n' "Device must not be empty." >&2
   exit 2
@@ -257,6 +263,7 @@ command=(
   --seed "${seed}"
   --attention "${attention}"
   --offload-margin "${offload_margin}"
+  --offload-mode "${offload_mode}"
   --device "${device}"
   --output "${output_path}"
 )
