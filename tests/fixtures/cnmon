@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+cat <<'INFO'
+Card 5
+    PCI
+        Domain ID : 0000
+        Bus num : 69
+        Device : 03
+        Function : 0
+INFO

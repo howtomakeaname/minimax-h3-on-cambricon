@@ -21,3 +21,4 @@ jobs:
           python -m pip install pytest
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pytest -q
+          bash tests/test_numa_run.sh

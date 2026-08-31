@@ -38,7 +38,8 @@ pci_fields="$(
     in_pci && /Domain ID/ { domain = $NF }
     in_pci && /Bus num/ { bus = $NF }
     in_pci && /^[[:space:]]+Device[[:space:]]*:/ { device = $NF }
-    in_pci && /Function/ { function_id = $NF; print domain, bus, device, function_id; exit }
+    in_pci && /Function/ { function_id = $NF }
+    END { if (domain != "" && bus != "" && device != "" && function_id != "") print domain, bus, device, function_id }
   '
 )"
 read -r domain bus pci_device function <<<"${pci_fields}"
