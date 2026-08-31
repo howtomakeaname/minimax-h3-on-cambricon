@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="${MINIMAX_H3_RUNNER:-${ROOT_DIR}/run.sh}"
+SYSFS_ROOT="${MINIMAX_H3_SYSFS_ROOT:-/sys}"
 
 device="mlu:0"
 args=("$@")
@@ -50,7 +51,7 @@ if [[ -z "${domain:-}" || -z "${bus:-}" || -z "${pci_device:-}" || -z "${functio
 fi
 
 pci_address="${domain}:${bus}:${pci_device}.${function}"
-numa_file="/sys/bus/pci/devices/${pci_address}/numa_node"
+numa_file="${SYSFS_ROOT}/bus/pci/devices/${pci_address}/numa_node"
 if [[ ! -r "${numa_file}" ]]; then
   printf 'No NUMA metadata for MLU %s at %s; running without binding.\n' "${logical_index}" "${pci_address}" >&2
   exec env MINIMAX_H3_NUMA_BOUND=1 "${RUNNER}" "${args[@]}"

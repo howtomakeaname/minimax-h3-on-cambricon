@@ -7,11 +7,14 @@ trap 'rm -rf "${TEMP_DIR}"' EXIT
 
 ln -s "${ROOT_DIR}/tests/fixtures/cnmon" "${TEMP_DIR}/cnmon"
 ln -s "${ROOT_DIR}/tests/fixtures/numactl" "${TEMP_DIR}/numactl"
+mkdir -p "${TEMP_DIR}/sys/bus/pci/devices/0000:69:03.0"
+cp "${ROOT_DIR}/tests/fixtures/numa_node" "${TEMP_DIR}/sys/bus/pci/devices/0000:69:03.0/numa_node"
 
 output="$(
   PATH="${TEMP_DIR}:${PATH}" \
   MLU_VISIBLE_DEVICES=5 \
   MINIMAX_H3_RUNNER=/usr/bin/true \
+  MINIMAX_H3_SYSFS_ROOT="${TEMP_DIR}/sys" \
   "${ROOT_DIR}/tools/numa_run.sh" --device mlu:0 --steps 2 2>&1
 )"
 
