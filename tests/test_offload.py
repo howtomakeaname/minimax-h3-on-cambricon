@@ -83,3 +83,22 @@ def test_invalid_mode_is_rejected():
 
     with pytest.raises(ValueError, match="Unsupported offload mode"):
         enable_cpu_master_offload(manager, mode="invalid")
+
+
+def test_shared_parameters_keep_their_alias():
+    class SharedModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.left = torch.nn.Linear(4, 4, bias=False)
+            self.right = torch.nn.Linear(4, 4, bias=False)
+            self.right.weight = self.left.weight
+
+    model = SharedModel()
+    manager = FakeManager(model)
+    original = model.left.weight.detach()
+    enable_cpu_master_offload(manager, mode="cpu-master")
+    model.left.weight.data = model.left.weight.detach().clone()
+
+    assert _restore_cpu_master(manager.hook, model) is True
+    assert model.left.weight is model.right.weight
+    assert model.left.weight.data_ptr() == original.data_ptr()

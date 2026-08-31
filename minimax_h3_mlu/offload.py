@@ -92,8 +92,10 @@ def _restore_cpu_master(hook, module: torch.nn.Module) -> bool:
         for name, buffer in submodule._buffers.items():
             if buffer is None or buffer.device.type == "cpu":
                 continue
-            cpu_buffer = moved_buffers.setdefault(id(buffer), buffer.to("cpu"))
-            submodule._buffers[name] = cpu_buffer
+            buffer_id = id(buffer)
+            if buffer_id not in moved_buffers:
+                moved_buffers[buffer_id] = buffer.to("cpu")
+            submodule._buffers[name] = moved_buffers[buffer_id]
 
     for name, cpu_data, _ in hook._cpu_master_tensors:
         _set_parameter_data(module, name, cpu_data)
