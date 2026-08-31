@@ -1,0 +1,12 @@
+accelerate==1.14.0
+av==18.1.0
+huggingface-hub==1.28.0
+imageio-ffmpeg==0.6.0
+importlib-metadata==8.7.0
+numpy==1.26.4
+peft==0.20.0
+qwen-vl-utils==0.0.14
+safetensors==0.8.0
+sentencepiece==0.2.1
+soundfile==0.14.0
+transformers==5.12.1

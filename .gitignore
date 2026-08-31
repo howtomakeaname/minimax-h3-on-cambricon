@@ -1,0 +1,14 @@
+.venv/
+models/
+outputs/
+.cache/
+TORCH_PROFILER_RAW_DATA/
+__pycache__/
+*.pyc
+*.log
+*.mp4
+*.wav
+*.safetensors
+*.npy
+*.npz
+*.json.gz
